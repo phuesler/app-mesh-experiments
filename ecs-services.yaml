@@ -1,0 +1,159 @@
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name that joins all the stacks
+    Default: flask
+
+  AppMeshMeshName:
+    Type: String
+    Description: Name of mesh
+    Default: flask-mesh
+
+  ECSServicesDomain:
+    Type: String
+    Description: DNS namespace used by services e.g. default.svc.cluster.local
+    Default: flask.sample
+
+  GatewayTaskDefinition:
+    Type: String
+    Description: Task definition for Gateway Service
+
+  ApiV1TaskDefinition:
+    Type: String
+    Description: Task definition for Api v1
+
+  ApiV2TaskDefinition:
+    Type: String
+    Description: Task definition for Api v2
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+Resources:
+  ECSServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for the service"
+      VpcId:
+        "Fn::ImportValue": !Sub "${EnvironmentName}:VPCId"
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCIDR
+          IpProtocol: -1
+
+  ApiV1ServiceDiscoveryRecord:
+    Type: "AWS::ServiceDiscovery::Service"
+    Properties:
+      Name: "api"
+      DnsConfig:
+        NamespaceId:
+          "Fn::ImportValue": !Sub "${EnvironmentName}:ECSServiceDiscoveryNamespace"
+        DnsRecords:
+          - Type: A
+            TTL: 300
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  ApiV1Service:
+    Type: "AWS::ECS::Service"
+    Properties:
+      ServiceName: "api"
+      Cluster:
+        "Fn::ImportValue": !Sub "${EnvironmentName}:ECSCluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      LaunchType: FARGATE
+      ServiceRegistries:
+        - RegistryArn:
+            "Fn::GetAtt": ApiV1ServiceDiscoveryRecord.Arn
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSServiceSecurityGroup
+          Subnets:
+            - "Fn::ImportValue": !Sub "${EnvironmentName}:PublicSubnetOne"
+            - "Fn::ImportValue": !Sub "${EnvironmentName}:PublicSubnetTwo"
+      TaskDefinition: { Ref: ApiV1TaskDefinition }
+
+  ApiV2ServiceDiscoveryRecord:
+    Type: "AWS::ServiceDiscovery::Service"
+    Properties:
+      Name: "api-v2"
+      DnsConfig:
+        NamespaceId:
+          "Fn::ImportValue": !Sub "${EnvironmentName}:ECSServiceDiscoveryNamespace"
+        DnsRecords:
+          - Type: A
+            TTL: 300
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  GatewayServiceDiscoveryRecord:
+    Type: "AWS::ServiceDiscovery::Service"
+    Properties:
+      Name: "gateway"
+      DnsConfig:
+        NamespaceId:
+          "Fn::ImportValue": !Sub "${EnvironmentName}:ECSServiceDiscoveryNamespace"
+        DnsRecords:
+          - Type: A
+            TTL: 300
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  ApiV2Service:
+    Type: "AWS::ECS::Service"
+    Properties:
+      ServiceName: "api-v2"
+      Cluster:
+        "Fn::ImportValue": !Sub "${EnvironmentName}:ECSCluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      LaunchType: FARGATE
+      ServiceRegistries:
+        - RegistryArn:
+            "Fn::GetAtt": ApiV2ServiceDiscoveryRecord.Arn
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSServiceSecurityGroup
+          Subnets:
+            - "Fn::ImportValue": !Sub "${EnvironmentName}:PublicSubnetOne"
+            - "Fn::ImportValue": !Sub "${EnvironmentName}:PublicSubnetTwo"
+      TaskDefinition: { Ref: ApiV2TaskDefinition }
+
+  GatewayService:
+    Type: "AWS::ECS::Service"
+    Properties:
+      ServiceName: "gateway"
+      Cluster:
+        "Fn::ImportValue": !Sub "${EnvironmentName}:ECSCluster"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      DesiredCount: 1
+      LaunchType: FARGATE
+      ServiceRegistries:
+        - RegistryArn:
+            "Fn::GetAtt": GatewayServiceDiscoveryRecord.Arn
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSServiceSecurityGroup
+          Subnets:
+            - "Fn::ImportValue": !Sub "${EnvironmentName}:PublicSubnetOne"
+            - "Fn::ImportValue": !Sub "${EnvironmentName}:PublicSubnetTwo"
+      TaskDefinition: { Ref: GatewayTaskDefinition }
+      LoadBalancers:
+        - ContainerName: app
+          ContainerPort: 3000
+          TargetGroupArn:
+            "Fn::ImportValue": !Sub "${EnvironmentName}:TargetGroupPublic"
